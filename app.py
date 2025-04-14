@@ -1,47 +1,24 @@
-from flask import Flask, request, render_template, send_file, Response
 import pyodbc
-import openpyxl
-from functools import wraps
+from flask import Flask, request, render_template, redirect, url_for, session
 
 app = Flask(__name__)
 
-# ?? Basic Auth Credentials
-USERNAME = 'admin'
-PASSWORD = '123'  # Change this to a strong password!
+# Secret key for session management
+app.secret_key = '123'
 
-# ?? Authentication Helpers
-def check_auth(username, password):
-    return username == USERNAME and password == PASSWORD
-
-def authenticate():
-    return Response(
-        'Could not verify your login.', 401,
-        {'WWW-Authenticate': 'Basic realm="Login Required"'})
-
-def requires_auth(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        auth = request.authorization
-        if not auth or not check_auth(auth.username, auth.password):
-            return authenticate()
-        return f(*args, **kwargs)
-    return decorated
-
-# ?? Azure SQL DB Connection Info
+# Azure SQL DB connection details
 server = 'chatbot-server0505.database.windows.net'
 database = 'chatbot-db'
 username = 'abhinav'
 password = 'admin@123456'
 driver = '{ODBC Driver 18 for SQL Server}'
 
-# ?? Database connection
 def get_db_connection():
     conn = pyodbc.connect(
         f'Driver={driver};Server={server};Database={database};Uid={username};Pwd={password};Encrypt=yes;TrustServerCertificate=no;Connection Timeout=30;'
     )
     return conn
 
-# ??? DB Init
 def init_db():
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -51,73 +28,102 @@ def init_db():
             id INT PRIMARY KEY IDENTITY(1,1),
             name NVARCHAR(100),
             dob DATE,
-            qualification NVARCHAR(100)
+            qualification NVARCHAR(100),
+            CONSTRAINT unique_user UNIQUE (name, dob)
         )
     ''')
     conn.commit()
     cursor.close()
     conn.close()
 
-# ?? Main Chat Form
+# Route for login page
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+
+        # Check hardcoded username/password (can be replaced with DB validation)
+        if username == 'admin' and password == 'admin123':
+            session['logged_in'] = True
+            return redirect(url_for('show_entries'))
+        else:
+            return "Invalid credentials. Please try again."
+
+    return render_template('login.html')
+
+# Authentication check for access to entries page
+def is_logged_in():
+    return 'logged_in' in session and session['logged_in']
+
 @app.route('/', methods=['GET', 'POST'])
 def index():
     if request.method == 'POST':
         name = request.form.get('name')
-        dob = request.form.get('dob')  # Must be YYYY-MM-DD format
+        dob = request.form.get('dob')
         qualification = request.form.get('qualification')
 
         try:
             conn = get_db_connection()
             cursor = conn.cursor()
-            cursor.execute(
-                'INSERT INTO users (name, dob, qualification) VALUES (?, ?, ?)',
-                (name, dob, qualification)
-            )
+
+            # Check for duplicate
+            cursor.execute('SELECT COUNT(*) FROM users WHERE name = ? AND dob = ?', (name, dob))
+            count = cursor.fetchone()[0]
+
+            if count > 0:
+                cursor.close()
+                conn.close()
+                return f"<h2 style='color: red;'>User with this name and DOB already exists!</h2><a href='/'>Go Back</a>"
+
+            # Insert new entry
+            cursor.execute('''
+                INSERT INTO users (name, dob, qualification)
+                VALUES (?, ?, ?)
+            ''', (name, dob, qualification))
+
             conn.commit()
             cursor.close()
             conn.close()
-            return f"<h3>Thank you, {name}. Your response has been recorded.</h3><a href='/'>Back</a>"
+
+            return redirect(url_for('show_entries'))
         except Exception as e:
-            return f"<h3>Error inserting data into database: {e}</h3><a href='/'>Back</a>"
+            return f"<h2>Error inserting data: {e}</h2><a href='/'>Go Back</a>"
 
     return render_template('index.html')
 
-# ?? View All Entries (Protected)
 @app.route('/entries')
-@requires_auth
-def view_entries():
+def show_entries():
+    if not is_logged_in():
+        return redirect(url_for('login'))
+
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT name, dob, qualification FROM users")
+    cursor.execute('SELECT name, dob, qualification, id FROM users')
     entries = cursor.fetchall()
     cursor.close()
     conn.close()
     return render_template('entries.html', entries=entries)
 
-# ?? Export Entries to Excel (Protected)
-@app.route('/export')
-@requires_auth
-def export_to_excel():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT name, dob, qualification FROM users")
-    data = cursor.fetchall()
-    cursor.close()
-    conn.close()
+@app.route('/delete/<int:id>', methods=['POST'])
+def delete_entry(id):
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM users WHERE id = ?', (id,))
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except Exception as e:
+        return f"Error deleting entry: {e}"
+    return redirect(url_for('show_entries'))
 
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.append(['Name', 'DOB', 'Qualification'])
-    for row in data:
-        ws.append(row)
+@app.route('/logout')
+def logout():
+    session.pop('logged_in', None)  # Remove the logged_in session
+    return redirect(url_for('login'))
 
-    file_path = "user_data.xlsx"
-    wb.save(file_path)
-    return send_file(file_path, as_attachment=True)
-
-# ?? Init the DB table
 init_db()
 
-# ?? Run the app
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
