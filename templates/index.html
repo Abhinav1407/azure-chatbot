@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Information-Gathering</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #eef2f3;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+    }
+    #chatbox {
+      background-color: white;
+      width: 400px;
+      height: 500px;
+      border-radius: 10px;
+      padding: 20px;
+      overflow-y: auto;
+      box-shadow: 0 0 10px rgba(0,0,0,0.2);
+    }
+    .message {
+      margin: 10px 0;
+      padding: 10px 15px;
+      border-radius: 20px;
+      max-width: 80%;
+      display: inline-block;
+    }
+    .bot {
+      background-color: #e0e0e0;
+      text-align: left;
+    }
+    .user {
+      background-color: #4CAF50;
+      color: white;
+      text-align: right;
+      float: right;
+    }
+    #inputArea {
+      margin-top: 10px;
+      display: flex;
+    }
+    #userInput {
+      flex: 1;
+      padding: 10px;
+      border-radius: 20px;
+      border: 1px solid #ccc;
+    }
+    #sendBtn {
+      padding: 10px 15px;
+      margin-left: 5px;
+      border-radius: 20px;
+      border: none;
+      background-color: #4CAF50;
+      color: white;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div id="chatbox">
+    <!-- Chat messages will be inserted here -->
+  </div>
+
+  <form id="hiddenForm" method="POST" style="display: none;">
+    <input type="hidden" name="name" id="nameField">
+    <input type="hidden" name="dob" id="dobField">
+    <input type="hidden" name="qualification" id="qualificationField">
+  </form>
+
+  <script>
+    const chatbox = document.getElementById('chatbox');
+    const form = document.getElementById('hiddenForm');
+    let step = 0;
+    let answers = {};
+
+    const steps = [
+      "Hi! What's your name?",
+      "Great! What's your date of birth?",
+      "And your highest educational qualification?"
+    ];
+
+    function addMessage(text, sender) {
+      const msg = document.createElement('div');
+      msg.classList.add('message', sender);
+      msg.textContent = text;
+      chatbox.appendChild(msg);
+      chatbox.scrollTop = chatbox.scrollHeight;
+    }
+
+    function showInput() {
+      const inputArea = document.createElement('div');
+      inputArea.id = "inputArea";
+      inputArea.innerHTML = `
+        <input type="text" id="userInput" autofocus>
+        <button id="sendBtn">Send</button>
+      `;
+      chatbox.appendChild(inputArea);
+
+      document.getElementById('sendBtn').onclick = function(e) {
+        e.preventDefault();
+        const userInput = document.getElementById('userInput').value.trim();
+        if (userInput === '') return;
+
+        addMessage(userInput, 'user');
+        inputArea.remove();
+
+        if (step === 0) answers.name = userInput;
+        if (step === 1) answers.dob = userInput;
+        if (step === 2) answers.qualification = userInput;
+
+        step++;
+        if (step < steps.length) {
+          setTimeout(() => {
+            addMessage(steps[step], 'bot');
+            setTimeout(showInput, 500);
+          }, 500);
+        } else {
+          document.getElementById('nameField').value = answers.name;
+          document.getElementById('dobField').value = answers.dob;
+          document.getElementById('qualificationField').value = answers.qualification;
+          form.submit();
+        }
+      };
+    }
+
+    window.onload = () => {
+      setTimeout(() => {
+        addMessage(steps[step], 'bot');
+        setTimeout(showInput, 500);
+      }, 500);
+    };
+  </script>
+</body>
+</html>
